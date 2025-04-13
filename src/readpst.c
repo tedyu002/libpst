@@ -432,13 +432,12 @@ item_end:
         if (!folder_pool_empty(&stFolderPool)) {
             char *pszChildFolder = NULL;
 
-           pszChildFolder = folder_list_get(pstFolderList);
-           if (!folder_pool_contains_or_parent(&stFolderPool, pszChildFolder)) {
-               free(pszChildFolder);
-               folder_list_pop(pstFolderList);
-               goto item_end;
-           }
-             free(pszChildFolder);
+            pszChildFolder = folder_list_get(pstFolderList);
+            if (!folder_pool_contains_or_parent(&stFolderPool, pszChildFolder)) {
+                free(pszChildFolder);
+                goto dir_end;
+            }
+            free(pszChildFolder);
         }
 
          DEBUG_INFO(("Processing Folder \"%s\"\n", item->file_as.str));
@@ -473,6 +472,7 @@ item_end:
 #endif
              }
          }
+dir_end:
          folder_list_pop(pstFolderList);
          pst_freeItem(item);
     }
