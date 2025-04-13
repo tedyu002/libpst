@@ -5,6 +5,8 @@
  *            dave.s@earthcorp.com
  */
 
+#include <iconv.h>
+
 #include "define.h"
 #include "lzfu.h"
 #include "msg.h"
@@ -67,6 +69,9 @@ void      write_appointment(FILE* f_output, pst_item *item);
 void      create_enter_dir(struct file_ll* f, pst_item *item);
 void      close_enter_dir(struct file_ll *f, struct folder_list *pstFolderList);
 char*     quote_string(char *inp);
+
+static int s_is_utf8(const char *pszSrc, size_t nzLen);
+static int s_is_charset(const char *pszSrc, size_t nzLen, const char *charset);
 
 const char*  prog_name;
 char*  output_dir = ".";
@@ -1601,6 +1606,17 @@ void write_body_part(FILE* f_output, pst_string *body, char *mime, char *charset
             free(newer);
         }
     }
+    else if (!body->is_utf8 && charset != NULL && strcmp(mime, "text/html") == 0 && strcasecmp(charset, "utf-8") != 0) {
+        // sometimes, the html meta say it's not UTF-8, but it is actually
+        // Check the body is UTF-8 and not the charset, use utf-8 instead.
+        int is_utf8 = 0;
+
+        if (s_is_utf8(body->str, body_len)) {
+            if (!s_is_charset(body->str, body_len, charset)) {
+               charset = "utf-8";
+            }
+        }
+    }
     int base64 = test_base64(body->str, body_len);
     fprintf(f_output, "\n--%s\n", boundary);
     fprintf(f_output, "Content-Type: %s; charset=\"%s\"\n", mime, charset);
@@ -2459,4 +2475,78 @@ void close_enter_dir(struct file_ll *f, struct folder_list *pstFolderList)
         close_recurse_dir();
     } else if (mode == MODE_SEPARATE)
         close_separate_dir();
+}
+
+static int
+s_is_utf8(const char *pszSrc, size_t nzLen)
+{
+   const uint8_t *pszIter = (uint8_t *)pszSrc;
+   const uint8_t *pszEnd = (uint8_t *)pszSrc + nzLen;
+   int nUtf8Len = 0;
+
+   for (; pszIter < pszEnd; pszIter += 1) {
+      if (nUtf8Len == 0) {
+         int nLeadingOne = 0;
+
+         if ((*pszIter & 0x80) == 0) {
+            continue;
+         }
+         if (*pszIter == 0xff) {
+            return 0;
+         }
+
+         nLeadingOne = __builtin_clz(~((*pszIter) | 0xffffff00)) - 24;
+         if (nLeadingOne >= 5 || nLeadingOne == 1) {
+            return 0;
+         }
+
+         nUtf8Len = nLeadingOne - 1;
+         continue;
+      }
+
+      if ((*pszIter & 0xc0) != 0x80) {
+         return 0;
+      }
+      nUtf8Len -= 1;
+   }
+
+   if (nUtf8Len > 0) {
+      return 0;
+   }
+
+   return 1;
+}
+
+static int
+s_is_charset(const char *pszSrc, size_t nzLen, const char *charset)
+{
+    iconv_t cd = iconv_open("UTF-8", charset);
+    if (cd == (iconv_t)(-1)) {
+        /* Cannot open charset, assume it is */
+        return 1;
+    }
+
+    char *pszInput = (char *)pszSrc;
+    size_t nzInputLen = nzLen;
+    char buffer[4096];
+
+    while (nzInputLen > 0) {
+        char *pszOutput = buffer;
+        size_t nzOutputSize = sizeof(buffer);
+        size_t nzResult = 0;
+
+        nzResult = iconv(cd, &pszInput, &nzInputLen, &pszOutput, &nzOutputSize);
+
+        if (nzResult == (size_t)-1) {
+            if (errno == E2BIG) {
+                continue;
+            } else {
+                iconv_close(cd);
+                return 0;
+            }
+        }
+    }
+
+    iconv_close(cd);
+    return 1;
 }
