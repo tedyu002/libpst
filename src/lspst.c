@@ -46,7 +46,7 @@ void close_enter_dir(struct file_ll *f)
     free(f->dname);
 }
 
-void process(pst_item *outeritem, pst_desc_tree *d_ptr, struct options o)
+void process(pst_item *outeritem, pst_desc_tree *d_ptr, struct options o, struct folder_list *pstFolderList)
 {
     struct file_ll ff;
     pst_item *item = NULL;
@@ -77,9 +77,12 @@ void process(pst_item *outeritem, pst_desc_tree *d_ptr, struct options o)
                 if (item->folder && d_ptr->child) {
                     // if this is a folder, we want to recurse into it
                     pst_convert_utf8(item, &item->file_as);
-                    printf("Folder \"%s\"\n", item->file_as.str);
-                    process(item, d_ptr->child, o);
-
+                    folder_list_push(pstFolderList, item->file_as.str);
+                    printf("Folder ", item->file_as.str);
+                    folder_list_print(pstFolderList, stdout);
+                    fputc('\n', stdout);
+                    process(item, d_ptr->child, o, pstFolderList);
+                    folder_list_pop(pstFolderList);
                 } else if (item->contact && (item->type == PST_TYPE_CONTACT)) {
                     if (!ff.type) ff.type = item->type;
                     // Process Contact item
@@ -287,9 +290,14 @@ int main(int argc, char* const* argv) {
     d_ptr = pst_getTopOfFolders(&pstfile, item);
     if (!d_ptr) DIE(("Top of folders record not found. Cannot continue\n"));
 
-    process(item, d_ptr->child, o);    // do the childred of TOPF
+    struct folder_list stFolderList;
+
+    folder_list_init(&stFolderList);
+
+    process(item, d_ptr->child, o, &stFolderList);    // do the childred of TOPF
     pst_freeItem(item);
     pst_close(&pstfile);
+    folder_list_free(&stFolderList);
 
     DEBUG_RET();
     return 0;

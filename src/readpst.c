@@ -28,7 +28,7 @@ struct file_ll {
 
 int       grim_reaper();
 pid_t     try_fork(char* folder);
-void      process(pst_item *outeritem, pst_desc_tree *d_ptr);
+void      process(pst_item *outeritem, pst_desc_tree *d_ptr, struct folder_list *pstFolderList);
 void      write_email_body(FILE *f, char *body);
 void      removeCR(char *c);
 void      usage();
@@ -65,11 +65,13 @@ int       write_extra_categories(FILE* f_output, pst_item* item);
 void      write_journal(FILE* f_output, pst_item* item);
 void      write_appointment(FILE* f_output, pst_item *item);
 void      create_enter_dir(struct file_ll* f, pst_item *item);
-void      close_enter_dir(struct file_ll *f);
+void      close_enter_dir(struct file_ll *f, struct folder_list *pstFolderList);
 char*     quote_string(char *inp);
 
 const char*  prog_name;
 char*  output_dir = ".";
+
+struct folder_pool stFolderPool;
 
 // Normal mode just creates mbox format files in the current directory. Each file is named
 // the same as the folder's name that it represents
@@ -88,6 +90,7 @@ char*  output_dir = ".";
 // saved as email_no-filename (e.g. 1-samplefile.doc or 1-Attachment2.zip)
 #define MODE_SEPARATE 3
 
+#define MODE_STDOUT 4
 
 // Output Normal just prints the standard information about what is going on
 #define OUTPUT_NORMAL 0
@@ -237,10 +240,23 @@ pid_t try_fork(char *folder)
 }
 
 
-void process(pst_item *outeritem, pst_desc_tree *d_ptr)
+void process(pst_item *outeritem, pst_desc_tree *d_ptr, struct folder_list *pstFolderList)
 {
     struct file_ll ff;
     pst_item *item = NULL;
+    char *pszFolder = NULL;
+    int bIsProcessFolder = 1;
+    struct pst_item_list stPstItemList;
+
+    pst_item_list_init(&stPstItemList);
+
+    pszFolder = folder_list_get(pstFolderList);
+
+    if (!folder_pool_empty(&stFolderPool)) {
+        if (!folder_pool_contains(&stFolderPool, pszFolder)) {
+            bIsProcessFolder = 0;
+        }
+    }
 
     DEBUG_ENT("process");
     create_enter_dir(&ff, outeritem);
@@ -268,38 +284,15 @@ void process(pst_item *outeritem, pst_desc_tree *d_ptr)
         }
 
         if (item->folder && item->file_as.str) {
-            DEBUG_INFO(("Processing Folder \"%s\"\n", item->file_as.str));
-            if (output_mode != OUTPUT_QUIET) {
-                pst_debug_lock();
-                    printf("Processing Folder \"%s\"\n", item->file_as.str);
-                    fflush(stdout);
-                pst_debug_unlock();
-            }
-            ff.item_count++;
-            if (d_ptr->child && (deleted_mode == DMODE_INCLUDE || strcasecmp(item->file_as.str, "Deleted Items"))) {
-                //if this is a non-empty folder other than deleted items, we want to recurse into it
-                pid_t parent = getpid();
-                pid_t child = try_fork(item->file_as.str);
-                if (child == 0) {
-                    // we are the child process, or the original parent if no children were available
-                    pid_t me = getpid();
-                    process(item, d_ptr->child);
-#ifdef HAVE_FORK
-#ifdef HAVE_SEMAPHORE_H
-                    if (me != parent) {
-                        // we really were a child, forked for the sole purpose of processing this folder
-                        // free my child count slot before really exiting, since
-                        // all I am doing here is waiting for my children to exit
-                        sem_post(global_children);
-                        grim_reaper(1); // wait for all my child processes to exit
-                        exit(0);        // really exit
-                    }
-#endif
-#endif
-                }
-            }
+            pst_item_list_push(&stPstItemList, item, d_ptr);
+            continue;
+        }
 
-        } else if (item->contact && (item->type == PST_TYPE_CONTACT)) {
+        if (!bIsProcessFolder) {
+            goto item_end;
+        }
+
+        if (item->contact && (item->type == PST_TYPE_CONTACT)) {
             DEBUG_INFO(("Processing Contact\n"));
             if (!(output_type_mode & OTMODE_CONTACT)) {
                 ff.skip_count++;
@@ -357,6 +350,27 @@ void process(pst_item *outeritem, pst_desc_tree *d_ptr)
 #endif
                     }
                 }
+                else if (mode == MODE_STDOUT)
+                {
+                     FILE *fp = NULL;
+                     char *pszBuf = NULL;
+                     size_t nzBufLen = 0;
+                     int nRes = 0;
+
+                     fp = open_memstream(&pszBuf, &nzBufLen);
+                     if (fp == NULL) {
+                         DIE(("open_memstream failed"));
+                     }
+                     write_normal_email(fp, NULL, item, mode, mode_MH, &pstfile, save_rtf_body, 0, &extra_mime_headers);
+                     if (ferror(fp)) {
+                         DIE(("write memstream failed"));
+                     }
+                     nRes = fclose(fp);
+                     fp = NULL;
+                     printf("%zu\n", nzBufLen);
+                     fwrite(pszBuf, nzBufLen, 1, stdout);
+                     free(pszBuf);
+                }
                 else {
                     // process this single email message, cannot fork since not separate mode
                     write_normal_email(ff.output[PST_TYPE_NOTE], ff.name[PST_TYPE_NOTE], item, mode, mode_MH, &pstfile, save_rtf_body, 0, &extra_mime_headers);
@@ -401,9 +415,66 @@ void process(pst_item *outeritem, pst_desc_tree *d_ptr)
             DEBUG_WARN(("Unknown item type %i (%s) name (%s)\n",
                         item->type, item->ascii_type, item->file_as.str));
         }
+
+item_end:
         pst_freeItem(item);
     }
-    close_enter_dir(&ff);
+
+    while (!pst_item_list_empty(&stPstItemList)) {
+        pst_item_list_shift(&stPstItemList, &item, &d_ptr);
+
+        folder_list_push(pstFolderList, item->file_as.str);
+        if (!folder_pool_empty(&stFolderPool)) {
+            char *pszChildFolder = NULL;
+
+           pszChildFolder = folder_list_get(pstFolderList);
+           if (!folder_pool_contains_or_parent(&stFolderPool, pszChildFolder)) {
+               free(pszChildFolder);
+               folder_list_pop(pstFolderList);
+               goto item_end;
+           }
+             free(pszChildFolder);
+        }
+
+         DEBUG_INFO(("Processing Folder \"%s\"\n", item->file_as.str));
+         if (output_mode != OUTPUT_QUIET || mode == MODE_STDOUT) {
+             pst_debug_lock();
+                 printf("Processing Folder ", item->file_as.str);
+                 folder_list_print(pstFolderList, stdout);
+                 fputc('\n', stdout);
+                 fflush(stdout);
+             pst_debug_unlock();
+         }
+         ff.item_count++;
+         if (d_ptr->child && (deleted_mode == DMODE_INCLUDE || strcasecmp(item->file_as.str, "Deleted Items"))) {
+             //if this is a non-empty folder other than deleted items, we want to recurse into it
+             pid_t parent = getpid();
+             pid_t child = try_fork(item->file_as.str);
+             if (child == 0) {
+                 // we are the child process, or the original parent if no children were available
+                 pid_t me = getpid();
+                 process(item, d_ptr->child, pstFolderList);
+#ifdef HAVE_FORK
+#ifdef HAVE_SEMAPHORE_H
+                 if (me != parent) {
+                     // we really were a child, forked for the sole purpose of processing this folder
+                     // free my child count slot before really exiting, since
+                     // all I am doing here is waiting for my children to exit
+                     sem_post(global_children);
+                     grim_reaper(1); // wait for all my child processes to exit
+                     exit(0);        // really exit
+                 }
+#endif
+#endif
+             }
+         }
+         folder_list_pop(pstFolderList);
+         pst_freeItem(item);
+    }
+
+    pst_item_list_free(&stPstItemList);
+    close_enter_dir(&ff, pstFolderList);
+    free(pszFolder);
     DEBUG_RET();
 }
 
@@ -426,8 +497,10 @@ int main(int argc, char* const* argv) {
         exit(3);
     }
 
+    folder_pool_init(&stFolderPool);
+
     // command-line option handling
-    while ((c = getopt(argc, argv, "a:bC:c:Dd:emhj:kMo:qrSt:uVwL:8"))!= -1) {
+    while ((c = getopt(argc, argv, "a:bC:c:Dd:emhj:kMo:qrSt:uVwL:8O:E"))!= -1) {
         switch (c) {
         case 'a':
             if (optarg) {
@@ -568,6 +641,18 @@ int main(int argc, char* const* argv) {
         case '8':
             prefer_utf8 = 1;
             break;
+        case 'O':
+            folder_pool_add(&stFolderPool, optarg);
+            break;
+        case 'E':
+            output_mode = OUTPUT_QUIET;
+            mode = MODE_STDOUT;
+            mode_MH  = 1;
+            mode_EX  = 0;
+            mode_MSG = 0;
+            max_child_specified = 1;
+            max_children = 0;
+            break;
         default:
             usage();
             exit(1);
@@ -659,7 +744,12 @@ int main(int argc, char* const* argv) {
         DIE(("Top of folders record not found. Cannot continue\n"));
     }
 
-    process(item, d_ptr->child);    // do the children of TOPF
+    struct folder_list stFolderList;
+
+    folder_list_init(&stFolderList);
+    process(item, d_ptr->child, &stFolderList);    // do the children of TOPF
+    folder_list_free(&stFolderList);
+    folder_pool_free(&stFolderPool);
     grim_reaper(1); // wait for all child processes
 
     pst_freeItem(item);
@@ -741,8 +831,10 @@ void usage() {
     printf("\t-u\t- Thunderbird mode. Write two extra .size and .type files\n");
     printf("\t-w\t- Overwrite any output mbox files\n");
     printf("\t-8\t- Output bodies in UTF-8, rather than original encoding, if UTF-8 version is available\n");
+    printf("\t-O <FOLDER>\t- Only process the folder, can indicate multiple times.\n");
+    printf("\t-E - Output EML in stdout, the original stdout is silent. Not use -j together.\n");
     printf("\n");
-    printf("Only one of -M -S -e -k -m -r should be specified\n");
+    printf("Only one of -M -S -e -k -m -r -E should be specified\n");
     DEBUG_RET();
 }
 
@@ -2276,7 +2368,7 @@ void create_enter_dir(struct file_ll* f, pst_item *item)
                 memset(f->name[t], 0, file_name_len);
             }
         }
-    } else {
+    } else if (mode != MODE_STDOUT) {
         // MODE_NORMAL
         int32_t t;
         for (t=0; t<PST_TYPE_MAX; t++) {
@@ -2287,7 +2379,7 @@ void create_enter_dir(struct file_ll* f, pst_item *item)
         }
     }
 
-    if (mode != MODE_SEPARATE) {
+    if (mode != MODE_SEPARATE && mode != MODE_STDOUT) {
         int32_t t;
         for (t=0; t<PST_TYPE_MAX; t++) {
             if (f->name[t]) {
@@ -2326,7 +2418,7 @@ void create_enter_dir(struct file_ll* f, pst_item *item)
 }
 
 
-void close_enter_dir(struct file_ll *f)
+void close_enter_dir(struct file_ll *f, struct folder_list *pstFolderList)
 {
     int32_t t;
     DEBUG_INFO(("processed item count for folder %s is %i, skipped %i, total %i \n",
@@ -2368,4 +2460,3 @@ void close_enter_dir(struct file_ll *f)
     } else if (mode == MODE_SEPARATE)
         close_separate_dir();
 }
-

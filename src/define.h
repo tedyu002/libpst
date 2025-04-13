@@ -16,6 +16,9 @@
 #include "timeconv.h"
 #include "libstrfunc.h"
 #include "vbuf.h"
+#include "folder_list.h"
+#include "pst_item_list.h"
+#include "folder_pool.h"
 
 
 #ifdef HAVE_STRING_H

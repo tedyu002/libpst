@@ -24,14 +24,20 @@ common_header = common.h        \
                 libstrfunc.h    \
                 lzfu.h          \
                 timeconv.h      \
-                vbuf.h
+                vbuf.h          \
+                folder_list.h   \
+                pst_item_list.h \
+                folder_pool.h
 
 common_source = debug.c         \
                 libpst.c        \
                 libstrfunc.c    \
                 lzfu.c          \
                 timeconv.c      \
-                vbuf.c
+                vbuf.c          \
+                folder_list.c   \
+                pst_item_list.c \
+                folder_pool.c
 
 
 if NEED_XGETOPT
