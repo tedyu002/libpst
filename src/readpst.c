@@ -9,7 +9,6 @@
 
 #include "define.h"
 #include "lzfu.h"
-#include "msg.h"
 
 #define OUTPUT_TEMPLATE "%s.%s"
 #define OUTPUT_KMAIL_DIR_TEMPLATE ".%s.directory"
@@ -131,7 +130,6 @@ struct folder_pool stFolderPool;
 int         mode         = MODE_NORMAL;
 int         mode_MH      = 0;   // a submode of MODE_SEPARATE
 int         mode_EX      = 0;   // a submode of MODE_SEPARATE
-int         mode_MSG     = 0;   // a submode of MODE_SEPARATE
 int         mode_thunder = 0;   // a submode of MODE_RECURSE
 int         output_mode  = OUTPUT_NORMAL;
 int         contact_mode = CMODE_VCARD;
@@ -337,10 +335,6 @@ void process(pst_item *outeritem, pst_desc_tree *d_ptr, struct folder_list *pstF
                         mk_separate_file(&ff, PST_TYPE_NOTE, (mode_EX) ? ".eml" : "", 1);
                         write_normal_email(ff.output[PST_TYPE_NOTE], ff.name[PST_TYPE_NOTE], item, mode, mode_MH, &pstfile, save_rtf_body, PST_TYPE_NOTE, &extra_mime_headers);
                         close_separate_file(&ff);
-                        if (mode_MSG) {
-                            mk_separate_file(&ff, PST_TYPE_NOTE, ".msg", 0);
-                            write_msg_email(ff.name[PST_TYPE_NOTE], item, &pstfile);
-                        }
 #ifdef HAVE_FORK
 #ifdef HAVE_SEMAPHORE_H
                         if (me != parent) {
@@ -567,24 +561,15 @@ int main(int argc, char* const* argv) {
             mode = MODE_SEPARATE;
             mode_MH  = 1;
             mode_EX  = 0;
-            mode_MSG = 0;
             break;
         case 'e':
             mode = MODE_SEPARATE;
             mode_MH  = 1;
             mode_EX  = 1;
-            mode_MSG = 0;
             file_name_len = 14;
             break;
         case 'L':
             pst_debug_setlevel(atoi(optarg));
-            break;
-        case 'm':
-            mode = MODE_SEPARATE;
-            mode_MH  = 1;
-            mode_EX  = 1;
-            mode_MSG = 1;
-            file_name_len = 14;
             break;
         case 'o':
             output_dir = optarg;
@@ -600,7 +585,6 @@ int main(int argc, char* const* argv) {
             mode = MODE_SEPARATE;
             mode_MH  = 0;
             mode_EX  = 0;
-            mode_MSG = 0;
             break;
         case 't':
             // email, appointment, contact, other
@@ -654,7 +638,6 @@ int main(int argc, char* const* argv) {
             mode = MODE_STDOUT;
             mode_MH  = 1;
             mode_EX  = 0;
-            mode_MSG = 0;
             max_child_specified = 1;
             max_children = 0;
             break;

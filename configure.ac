@@ -377,8 +377,6 @@ AC_ARG_ENABLE([profiling],
 AC_MSG_RESULT([$enable_profiling])
 AM_CONDITIONAL(GPROF_PROFILING, [test "$enable_profiling" = "yes"])
 
-PKG_CHECK_MODULES([GSF], [libgsf-1])
-
 PKG_CHECK_MODULES([ZLIB], [zlib])
 
 AC_OUTPUT(                  \

@@ -51,7 +51,7 @@ if BUILD_DII
     bin_PROGRAMS   += pst2dii
 endif
 lspst_SOURCES       = lspst.c          $(common_header)
-readpst_SOURCES     = readpst.c        $(common_header) msg.cpp msg.h
+readpst_SOURCES     = readpst.c        $(common_header)
 pst2ldif_SOURCES    = pst2ldif.cpp     $(common_header)
 pst2dii_SOURCES     = pst2dii.cpp      $(common_header)
 deltasearch_SOURCES = deltasearch.cpp  $(common_header)

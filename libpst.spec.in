@@ -22,7 +22,7 @@ Source:             %{url}/packages/%{name}-%{version}.tar.gz
 
 BuildRequires:      make
 BuildRequires:      libtool gcc-c++
-BuildRequires:      gd-devel zlib-devel boost-devel libgsf-devel gettext-devel
+BuildRequires:      gd-devel zlib-devel boost-devel gettext-devel
 
 %if 0%{with_dii}
 BuildRequires:      ImageMagick
@@ -35,7 +35,7 @@ Requires:           boost-python3
 BuildRequires:      python-devel
 %endif
 
-Requires:           libgsf gettext
+Requires:           gettext
 Requires:           %{name}-libs%{?_isa} = %{version}-%{release}
 
 %if 0%{with_dii}
