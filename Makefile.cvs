@@ -9,7 +9,7 @@ all:
 	autoheader
 	automake --add-missing
 	autoconf
-	./configure
+	./configure --disable-python
 	rm -rf html.internal
 	doxygen
 	tar cfz libpst.html.tar.gz html.internal
